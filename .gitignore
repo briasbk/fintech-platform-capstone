@@ -1,0 +1,4 @@
+terraform.tfvars
+*.zip
+.terraform/
+lambda_ir.zip
