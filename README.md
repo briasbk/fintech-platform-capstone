@@ -1,157 +1,135 @@
-# FinTech AWS Security Platform — Capstone Project
+# Smart Universal Image Extractor
 
-> **Lead DevOps Engineer** | Nairobi-based Fintech | Central Bank of Kenya regulated  
-> Multi-account, Zero-Trust, Fully Automated Security Platform on AWS
-
----
-
-## Architecture Overview
-
-```
-AWS Organizations
-├── Security OU
-├── Production OU  ← SCP: DenyEC2Terminate + DenyCloudTrailStop
-└── Development OU ← OIDC CI/CD (GitHub Actions, no static keys)
-
-Incident Response Pipeline:
-GuardDuty → EventBridge → Step Functions → Lambda → SNS + S3
-
-Compliance:
-AWS Config (auto-remediation) → Security Hub (FSBP) → SNS alerts
-
-Edge Protection:
-Internet → WAF (RateLimit + CommonRuleSet + SQLiRuleSet) → ALB → ECS Fargate
-
-Encryption:
-KMS CMK (auto-rotation) → S3 (aws:kms) → Secrets Manager
-```
+A **production-ready GUI application** to extract and download all images from any website — including JavaScript-rendered content, CSS backgrounds, and API/CDN images. Supports **concurrent crawling**, **async downloads**, **category-based folder organisation**, and a **live progress bar**.
 
 ---
 
-## Project Requirements Delivered
+## Features
 
-| # | Requirement | Status |
-|---|-------------|--------|
-| 1 | Multi-Account Organizations + SCPs | ✅ |
-| 2 | IAM Permission Boundary + OIDC Federation | ✅ |
-| 3 | GuardDuty + Step Functions Incident Response | ✅ |
-| 4 | AWS Config Auto-Remediation + Security Hub | ✅ |
-| 5 | ECS App + ALB + WAF (SQLi/XSS/Rate blocking) | ✅ |
-| 6 | KMS CMK + S3 Encryption + Secrets Manager | ✅ |
-| 7 | Attack Simulation (all 4 scenarios) | ✅ |
-| 8 | Architecture Diagram + Executive Report | ✅ |
-
----
-
-## Repository Structure
-
-```
-fintech-platform-capstone/
-├── terraform/
-│   ├── main.tf              # All infrastructure — one apply deploys everything
-│   └── lambda_ir.py         # Incident response Lambda function
-├── .github/
-│   └── workflows/
-│       └── deploy.yml       # GitHub Actions OIDC deployment workflow
-├── screenshots/             # Evidence screenshots for each requirement
-└── README.md
-```
+- **Dual-mode crawling** — fast `aiohttp` fetch for static pages, Playwright fallback for JS-rendered pages.
+- Automatically detects and downloads images from:
+  - `<img>` tags (`src`, `srcset`, `data-src`, `data-original`, `data-lazy`)
+  - CSS `background-image` styles
+  - Network responses (API/CDN images captured in real time)
+- **SSL verification disabled** by default — works on sites with self-signed or misconfigured certificates.
+- Blocks unnecessary resources during crawl (CSS, JS, fonts, media) for faster page loads.
+- Skips redundant URL variants — filters out WooCommerce/shop filter params (`?yith_wcan`, `?add-to-cart`, `?orderby`, etc.) and irrelevant paths (`/cart`, `/checkout`, `/wp-admin`, etc.).
+- Async downloads with **live progress bar** and download counter.
+- Automatically splits downloads into **category subfolders** based on URL path (e.g., `/shop/`, `/wp-content/`).
+- Polished dark-themed **Tkinter GUI** with colour-coded log output.
+- Fully cross-platform (macOS, Windows, Linux) with Python 3.12+.
 
 ---
 
-## How to Deploy
+## Screenshots
 
-### Prerequisites
-```bash
-# AWS CLI configured with admin credentials
-aws configure
-
-# Terraform >= 1.7
-terraform -version
-```
-
-### Deploy
-```bash
-cd terraform
-
-# Create terraform.tfvars
-cat > terraform.tfvars << EOF
-region      = "us-east-1"
-alert_email = "your-email@gmail.com"
-github_org  = "your-github-username"
-github_repo = "fintech-platform-capstone"
-EOF
-
-terraform init
-terraform apply
-```
-
-### Confirm SNS subscription
-Check your email immediately after apply and confirm the SNS subscription.
+*(Optional: Add screenshots here of the GUI, progress bar, and logs.)*
 
 ---
 
-## Key Outputs After Apply
+## Requirements
 
-| Output | Description |
-|--------|-------------|
-| `alb_dns_name` | Use for WAF attack simulation tests |
-| `guardduty_detector_id` | Use to generate sample findings |
-| `deploy_role_arn` | Paste into GitHub Actions secrets |
-| `app_data_bucket` | Upload files to verify KMS encryption |
-| `kms_key_id` | Verify rotation in KMS console |
-
----
-
-## Attack Simulation Commands
+- **Python 3.12+**
+- Python packages:
 
 ```bash
-# Set variables from terraform output
-ALB=$(terraform output -raw alb_dns_name)
-DETECTOR=$(terraform output -raw guardduty_detector_id)
-
-# Scenario 1 — Misconfigured S3 (Config auto-remediates)
-aws s3api create-bucket --bucket fintech-test-$(date +%s) --region us-east-1
-
-# Scenario 2 — GuardDuty incident response
-aws guardduty create-sample-findings \
-  --detector-id $DETECTOR \
-  --finding-types "UnauthorizedAccess:EC2/SSHBruteForce"
-
-# Scenario 3 — OIDC block (fork repo and trigger workflow from fork)
-
-# Scenario 4 — WAF attack simulation
-curl -s -o /dev/null -w "Legit:        %{http_code}\n" http://$ALB/
-curl -s -o /dev/null -w "SQLi blocked: %{http_code}\n" "http://$ALB/?id=1'+OR+'1'='1"
-curl -s -o /dev/null -w "XSS blocked:  %{http_code}\n" "http://$ALB/?q=<script>alert(1)</script>"
+pip install aiohttp beautifulsoup4 playwright
+playwright install chromium
 ```
 
 ---
 
-## Screenshots Evidence
+## Installation
 
-| File | Proves |
-|------|--------|
-| `screenshots/configandGuardduty-findings.png` | Security Hub + Config findings active |
-| `screenshots/SNS alert email received.png` | Automated incident notification |
-| `screenshots/Devopsboundary.png` | IAM Permission Boundary configured |
-| `screenshots/200then403.png` | WAF blocking SQLi/XSS attacks |
-| `screenshots/fintech-cmk-key-rotation.png` | KMS CMK with auto-rotation enabled |
-| `screenshots/token.actions.githubusercontent.com.png` | OIDC provider registered |
-| `screenshots/fintech-webacl.png` | WAF Web ACL rules configured |
-| `screenshots/Screenshot 2026-05-30 at 10.25.25 PM.png` | Additional evidence |
+1. Clone this repository:
+
+```bash
+git clone <repository-url>
+cd <repository-folder>
+```
+
+2. Create a virtual environment (recommended):
+
+```bash
+python3.12 -m venv venv
+source venv/bin/activate   # macOS/Linux
+venv\Scripts\activate      # Windows
+```
+
+3. Install dependencies:
+
+```bash
+pip install aiohttp beautifulsoup4 playwright
+playwright install chromium
+```
 
 ---
 
-## Services Used
+## Usage
 
-| Layer | AWS Services |
-|-------|-------------|
-| Governance | AWS Organizations, SCPs, CloudTrail |
-| Identity | IAM, OIDC, Permission Boundaries, STS |
-| Detection | GuardDuty, EventBridge |
-| Orchestration | Step Functions, Lambda |
-| Compliance | AWS Config, Security Hub, SSM Automation |
-| Edge Protection | WAF v2, ALB, ECS Fargate |
-| Encryption | KMS CMK, S3 SSE, Secrets Manager |
-| Alerting | SNS, CloudWatch |
+1. Run the application:
+
+```bash
+python web_image_extractor.py
+```
+
+2. Enter the target website URL.
+3. Click **Folder** to choose where images will be saved (defaults to current directory).
+4. Click **Start** to begin.
+5. Watch the log for real-time crawl and download status:
+   - `[fast]` — page fetched via aiohttp (no browser)
+   - `[pw]` — page rendered via Playwright
+   - `[err]` — page or download failed
+   - Green lines — successfully saved images
+6. Images are saved into subfolders automatically by URL category.
+
+---
+
+## Configuration
+
+Key constants at the top of the script can be tuned to your needs:
+
+| Constant | Default | Description |
+|---|---|---|
+| `MAX_CRAWL_WORKERS` | `15` | Concurrent page crawl workers |
+| `MAX_DOWNLOAD_CONNECTIONS` | `100` | Concurrent image download connections |
+| `PAGE_TIMEOUT_MS` | `45000` | Playwright page load timeout (ms) |
+| `DOWNLOAD_RETRIES` | `2` | Retry attempts per image |
+| `SKIP_QUERY_PARAMS` | see script | URL query params to skip (filters, sorting, etc.) |
+| `SKIP_PATH_KEYWORDS` | see script | URL path segments to skip (cart, admin, etc.) |
+
+---
+
+## Packaging (Optional)
+
+### macOS / Windows
+
+```bash
+pip install pyinstaller
+pyinstaller --onefile --windowed web_image_extractor.py
+```
+
+Output will be in the `dist/` folder — a standalone `.app` on macOS or `.exe` on Windows.
+
+---
+
+## Notes
+
+- The app uses **Playwright Chromium** by default. Other browsers can be installed via `playwright install firefox` or `playwright install webkit`.
+- SSL verification is disabled to handle sites with self-signed or misconfigured certificates. This is safe for scraping purposes but do not use in security-sensitive contexts.
+- For very large websites, consider adding a page limit to avoid crawling thousands of pages.
+
+---
+
+## License
+
+MIT License  
+(c) 2026 [Your Name or Organisation]
+
+---
+
+## Acknowledgements
+
+- [Playwright](https://playwright.dev/python/) — headless browser automation
+- [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/) — HTML parsing
+- [aiohttp](https://docs.aiohttp.org/) — asynchronous HTTP requests
