@@ -1,4 +1,4 @@
-# FinTech AWS Security Platform — Capstone Project
+# FinTech AWS Security Platform - Capstone Project
 
 > **Lead DevOps Engineer** | Nairobi-based Fintech | Central Bank of Kenya regulated  
 > Multi-account, Zero-Trust, Fully Automated Security Platform on AWS
@@ -48,7 +48,7 @@ KMS CMK (auto-rotation) → S3 (aws:kms) → Secrets Manager
 ```
 fintech-platform-capstone/
 ├── terraform/
-│   ├── main.tf              # All infrastructure — one apply deploys everything
+│   ├── main.tf              # All infrastructure - one apply deploys everything
 │   └── lambda_ir.py         # Incident response Lambda function
 ├── .github/
 │   └── workflows/
@@ -59,7 +59,7 @@ fintech-platform-capstone/
 
 ---
 
-## Requirement 1 — Multi-Account Organizations + SCPs
+## Requirement 1 - Multi-Account Organizations + SCPs
 
 AWS Organizations enabled with All Features. Three OUs under Root: Security, Production, Development. SCP attached to Production OU denying `ec2:TerminateInstances` and `cloudtrail:StopLogging` regardless of local IAM permissions.
 
@@ -89,15 +89,15 @@ Organization-wide CloudTrail (`fintech-trail`) enabled across all regions, deliv
 
 ---
 
-## Requirement 2 — IAM Permission Boundary + OIDC
+## Requirement 2 - IAM Permission Boundary + OIDC
 
-### Permission Boundary — DevOpsBoundary
+### Permission Boundary - DevOpsBoundary
 
-Attached to the `DevOpsEngineer` role. Hard ceiling on permissions — `s3:DeleteBucket`, `s3:DeleteObject`, `s3:PutBucketPolicy` all denied even if role policy allows them.
+Attached to the `DevOpsEngineer` role. Hard ceiling on permissions - `s3:DeleteBucket`, `s3:DeleteObject`, `s3:PutBucketPolicy` all denied even if role policy allows them.
 
 ![DevOps Boundary](screenshots/Devopsboundary.png)
 
-### OIDC Federation — GitHub Actions
+### OIDC Federation - GitHub Actions
 
 No static AWS keys stored anywhere. GitHub Actions exchanges a signed JWT for temporary STS credentials via `AssumeRoleWithWebIdentity`.
 
@@ -121,7 +121,7 @@ Only this exact repo and branch can assume the deploy role. Fork attempts return
 
 ---
 
-## Requirement 3 — Automated Incident Response
+## Requirement 3 - Automated Incident Response
 
 **Pipeline:** GuardDuty → EventBridge → Step Functions → Lambda → SNS + S3
 
@@ -141,13 +141,13 @@ ValidateFinding → IsolateInstance → NotifyTeam → Success
 6. Finding JSON logged to S3 under `findings/YYYY/MM/DD/`
 7. SNS publishes alert to security team
 
-### SNS Alert Email — End-to-End Proof
+### SNS Alert Email - End-to-End Proof
 
 ![SNS Alert Email](screenshots/SNS%20alert%20email%20received.png)
 
 ---
 
-## Requirement 4 — Continuous Compliance + Security Hub
+## Requirement 4 - Continuous Compliance + Security Hub
 
 ### Security Hub + Config Findings
 
@@ -169,7 +169,7 @@ Security Hub enabled with **AWS Foundational Security Best Practices (FSBP)**. G
 
 ---
 
-## Requirement 5 — Application Security (WAF + ALB + ECS)
+## Requirement 5 - Application Security (WAF + ALB + ECS)
 
 ### WAF Web ACL Rules
 
@@ -196,15 +196,15 @@ WAF logs → CloudWatch `/aws/waf/fintech-webacl` (90-day retention).
 
 ---
 
-## Requirement 6 — Full-Stack Encryption
+## Requirement 6 - Full-Stack Encryption
 
-### KMS CMK — Automatic Key Rotation Enabled
+### KMS CMK - Automatic Key Rotation Enabled
 
 ![KMS Key Rotation](screenshots/fintech-cmk-key-rotation.png)
 
 | Resource | Encryption |
 |----------|-----------|
-| S3 `fintech-appdata-*` | `aws:kms` — `alias/fintech-cmk` |
+| S3 `fintech-appdata-*` | `aws:kms` - `alias/fintech-cmk` |
 | S3 findings archive | AES-256 |
 | Secrets Manager `fintech/prod/db-password` | KMS CMK |
 
@@ -218,7 +218,7 @@ aws s3api head-object --bucket fintech-appdata-508471420037 --key test.txt \
 
 ---
 
-## Requirement 7 — Attack Simulation Summary
+## Requirement 7 - Attack Simulation Summary
 
 | Scenario | Action | Automation Triggered | Result |
 |----------|--------|---------------------|--------|
