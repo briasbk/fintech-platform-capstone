@@ -59,87 +59,185 @@ fintech-platform-capstone/
 
 ---
 
+## Requirement 1 — Multi-Account Organizations + SCPs
+
+AWS Organizations enabled with All Features. Three OUs under Root: Security, Production, Development. SCP attached to Production OU denying `ec2:TerminateInstances` and `cloudtrail:StopLogging` regardless of local IAM permissions.
+
+### SCP JSON
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyEC2Terminate",
+      "Effect": "Deny",
+      "Action": ["ec2:TerminateInstances"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyCloudTrailStop",
+      "Effect": "Deny",
+      "Action": ["cloudtrail:StopLogging", "cloudtrail:DeleteTrail"],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+Organization-wide CloudTrail (`fintech-trail`) enabled across all regions, delivering logs to `s3://fintech-cloudtrail-508471420037` with log file validation enabled.
+
+---
+
+## Requirement 2 — IAM Permission Boundary + OIDC
+
+### Permission Boundary — DevOpsBoundary
+
+Attached to the `DevOpsEngineer` role. Hard ceiling on permissions — `s3:DeleteBucket`, `s3:DeleteObject`, `s3:PutBucketPolicy` all denied even if role policy allows them.
+
+![DevOps Boundary](screenshots/Devopsboundary.png)
+
+### OIDC Federation — GitHub Actions
+
+No static AWS keys stored anywhere. GitHub Actions exchanges a signed JWT for temporary STS credentials via `AssumeRoleWithWebIdentity`.
+
+![OIDC Provider](screenshots/token.actions.githubusercontent.com.png)
+
+### Trust Policy Condition
+
+```json
+"Condition": {
+  "StringEquals": {
+    "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+  },
+  "StringLike": {
+    "token.actions.githubusercontent.com:sub":
+      "repo:briasbk/fintech-platform-capstone:ref:refs/heads/main"
+  }
+}
+```
+
+Only this exact repo and branch can assume the deploy role. Fork attempts return `Not authorized to perform: sts:AssumeRoleWithWebIdentity`.
+
+---
+
+## Requirement 3 — Automated Incident Response
+
+**Pipeline:** GuardDuty → EventBridge → Step Functions → Lambda → SNS + S3
+
+### Step Functions State Machine Flow
+
+```
+ValidateFinding → IsolateInstance → NotifyTeam → Success
+      ↓                 ↓
+ NotifyFailure     NotifyFailure
+```
+
+1. GuardDuty detects severity >= 7 (HIGH/CRITICAL)
+2. EventBridge rule triggers Step Functions state machine
+3. Lambda validates finding, extracts instance ID
+4. Lambda replaces EC2 security groups with `quarantine-sg` (deny all traffic)
+5. Instance tagged: `Status=QUARANTINED`, `IncidentId=<finding-id>`
+6. Finding JSON logged to S3 under `findings/YYYY/MM/DD/`
+7. SNS publishes alert to security team
+
+### SNS Alert Email — End-to-End Proof
+
+![SNS Alert Email](screenshots/SNS%20alert%20email%20received.png)
+
+---
+
+## Requirement 4 — Continuous Compliance + Security Hub
+
+### Security Hub + Config Findings
+
+![Config and GuardDuty Findings](screenshots/configandGuardduty-findings.png)
+
+### Auto-Remediation Flow
+
+| Step | Action |
+|------|--------|
+| 1 | Unencrypted S3 bucket created |
+| 2 | Config evaluates → `NON_COMPLIANT` |
+| 3 | SSM Automation `AWS-EnableS3BucketEncryption` fires automatically |
+| 4 | Encryption applied (AES256) |
+| 5 | Config re-evaluates → `COMPLIANT` |
+
+Zero human intervention. Full audit trail in CloudTrail.
+
+Security Hub enabled with **AWS Foundational Security Best Practices (FSBP)**. GuardDuty and Config integrated as finding sources. HIGH/CRITICAL findings route to SNS via EventBridge.
+
+---
+
+## Requirement 5 — Application Security (WAF + ALB + ECS)
+
+### WAF Web ACL Rules
+
+![WAF Web ACL](screenshots/fintech-webacl.png)
+
+| Priority | Rule | Action |
+|----------|------|--------|
+| 1 | RateLimit (100 req/5min/IP) | Block |
+| 2 | AWSManagedRulesCommonRuleSet | Block (OWASP Top 10) |
+| 3 | AWSManagedRulesSQLiRuleSet | Block |
+
+### Attack Simulation Results
+
+![WAF Blocking 200 then 403](screenshots/200then403.png)
+
+| Test | Result |
+|------|--------|
+| Legitimate request | `200 OK` |
+| SQL Injection `?id=1' OR '1'='1` | `403 Forbidden` |
+| XSS `?q=<script>alert(1)</script>` | `403 Forbidden` |
+| Rate limit exceeded | `403 Forbidden` |
+
+WAF logs → CloudWatch `/aws/waf/fintech-webacl` (90-day retention).
+
+---
+
+## Requirement 6 — Full-Stack Encryption
+
+### KMS CMK — Automatic Key Rotation Enabled
+
+![KMS Key Rotation](screenshots/fintech-cmk-key-rotation.png)
+
+| Resource | Encryption |
+|----------|-----------|
+| S3 `fintech-appdata-*` | `aws:kms` — `alias/fintech-cmk` |
+| S3 findings archive | AES-256 |
+| Secrets Manager `fintech/prod/db-password` | KMS CMK |
+
+### S3 Encryption Verification
+
+```bash
+aws s3api head-object --bucket fintech-appdata-508471420037 --key test.txt \
+  --query '{Encryption:ServerSideEncryption,KMSKey:SSEKMSKeyId}'
+# {"Encryption": "aws:kms", "KMSKey": "arn:aws:kms:us-east-1:508471420037:key/4fba7f9e-..."}
+```
+
+---
+
+## Requirement 7 — Attack Simulation Summary
+
+| Scenario | Action | Automation Triggered | Result |
+|----------|--------|---------------------|--------|
+| Misconfigured S3 | Created unencrypted bucket | Config + SSM Automation | Encryption applied automatically |
+| Malicious network | GuardDuty sample finding | EventBridge → Step Functions → Lambda | EC2 isolated, SNS alert sent |
+| CI/CD abuse | Workflow from forked repo | OIDC trust policy | AssumeRole denied |
+| App attack | SQLi + XSS + rate limit via curl | WAF rules | All returned 403 Forbidden |
+
+---
+
 ## How to Deploy
 
-### Prerequisites
-```bash
-# AWS CLI configured with admin credentials
-aws configure
-
-# Terraform >= 1.7
-terraform -version
-```
-
-### Deploy
 ```bash
 cd terraform
-
-# Create terraform.tfvars
-cat > terraform.tfvars << EOF
-region      = "us-east-1"
-alert_email = "your-email@gmail.com"
-github_org  = "your-github-username"
-github_repo = "fintech-platform-capstone"
-EOF
-
 terraform init
-terraform apply
+terraform apply   # fill terraform.tfvars first
 ```
 
-### Confirm SNS subscription
-Check your email immediately after apply and confirm the SNS subscription.
-
----
-
-## Key Outputs After Apply
-
-| Output | Description |
-|--------|-------------|
-| `alb_dns_name` | Use for WAF attack simulation tests |
-| `guardduty_detector_id` | Use to generate sample findings |
-| `deploy_role_arn` | Paste into GitHub Actions secrets |
-| `app_data_bucket` | Upload files to verify KMS encryption |
-| `kms_key_id` | Verify rotation in KMS console |
-
----
-
-## Attack Simulation Commands
-
-```bash
-# Set variables from terraform output
-ALB=$(terraform output -raw alb_dns_name)
-DETECTOR=$(terraform output -raw guardduty_detector_id)
-
-# Scenario 1 — Misconfigured S3 (Config auto-remediates)
-aws s3api create-bucket --bucket fintech-test-$(date +%s) --region us-east-1
-
-# Scenario 2 — GuardDuty incident response
-aws guardduty create-sample-findings \
-  --detector-id $DETECTOR \
-  --finding-types "UnauthorizedAccess:EC2/SSHBruteForce"
-
-# Scenario 3 — OIDC block (fork repo and trigger workflow from fork)
-
-# Scenario 4 — WAF attack simulation
-curl -s -o /dev/null -w "Legit:        %{http_code}\n" http://$ALB/
-curl -s -o /dev/null -w "SQLi blocked: %{http_code}\n" "http://$ALB/?id=1'+OR+'1'='1"
-curl -s -o /dev/null -w "XSS blocked:  %{http_code}\n" "http://$ALB/?q=<script>alert(1)</script>"
-```
-
----
-
-## Screenshots Evidence
-
-| File | Proves |
-|------|--------|
-| `screenshots/configandGuardduty-findings.png` | Security Hub + Config findings active |
-| `screenshots/SNS alert email received.png` | Automated incident notification |
-| `screenshots/Devopsboundary.png` | IAM Permission Boundary configured |
-| `screenshots/200then403.png` | WAF blocking SQLi/XSS attacks |
-| `screenshots/fintech-cmk-key-rotation.png` | KMS CMK with auto-rotation enabled |
-| `screenshots/token.actions.githubusercontent.com.png` | OIDC provider registered |
-| `screenshots/fintech-webacl.png` | WAF Web ACL rules configured |
-| `screenshots/Screenshot 2026-05-30 at 10.25.25 PM.png` | Additional evidence |
+Confirm SNS email subscription immediately after apply.
 
 ---
 
@@ -150,8 +248,8 @@ curl -s -o /dev/null -w "XSS blocked:  %{http_code}\n" "http://$ALB/?q=<script>a
 | Governance | AWS Organizations, SCPs, CloudTrail |
 | Identity | IAM, OIDC, Permission Boundaries, STS |
 | Detection | GuardDuty, EventBridge |
-| Orchestration | Step Functions, Lambda |
-| Compliance | AWS Config, Security Hub, SSM Automation |
+| Orchestration | Step Functions, Lambda (Python 3.12) |
+| Compliance | AWS Config, Security Hub (FSBP), SSM Automation |
 | Edge Protection | WAF v2, ALB, ECS Fargate |
-| Encryption | KMS CMK, S3 SSE, Secrets Manager |
-| Alerting | SNS, CloudWatch |
+| Encryption | KMS CMK, S3 SSE-KMS, Secrets Manager |
+| Alerting | SNS, CloudWatch Logs |
