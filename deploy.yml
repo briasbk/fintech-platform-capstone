@@ -1,0 +1,36 @@
+# .github/workflows/deploy.yml
+# Place this in your GitHub repo
+
+name: Deploy to AWS (OIDC)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}  # paste deploy_role_arn from terraform output
+          aws-region: us-east-1
+
+      - name: Verify identity (screenshot this)
+        run: aws sts get-caller-identity
+
+      - name: Deploy test resource
+        run: |
+          aws s3api put-object \
+            --bucket ${{ secrets.APP_DATA_BUCKET }} \
+            --key deployments/$(date +%s).txt \
+            --body /dev/null
+          echo "Deployed successfully via OIDC — no static keys used"
